@@ -1,0 +1,10 @@
+torch>=2.1
+transformers>=4.40
+safetensors
+huggingface_hub
+numpy
+pandas
+scipy
+scikit-learn
+lightgbm
+matplotlib
