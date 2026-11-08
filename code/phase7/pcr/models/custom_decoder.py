@@ -6,6 +6,7 @@ Changes vs the starter: (1) optional ``bidirectional`` flag (for the ``*_bidir``
 which prevents all-masked rows -> NaN with right-padding / bidirectional windows,
 (4) RMSNorm is computed in fp32 so fp16 autocast on a T4 does not overflow.
 """
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -36,7 +37,11 @@ class RMSNorm(nn.Module):
             torch.Tensor: Normalised tensor with the dtype of ``x``.
         """
         xf = x.float()
-        out = xf * torch.rsqrt(xf.pow(2).mean(-1, keepdim=True) + self.eps) * self.weight.float()
+        out = (
+            xf
+            * torch.rsqrt(xf.pow(2).mean(-1, keepdim=True) + self.eps)
+            * self.weight.float()
+        )
         return out.to(x.dtype)
 
 
@@ -114,9 +119,13 @@ def build_attn_mask(T, device, window, bidirectional, key_padding_mask):
         torch.Tensor: Bool tensor of shape (B or 1, 1, T, T).
     """
     idx = torch.arange(T, device=device)
-    diff = idx[:, None] - idx[None, :]      # i - j
+    diff = idx[:, None] - idx[None, :]  # i - j
     if bidirectional:
-        allowed = torch.ones(T, T, dtype=torch.bool, device=device) if window is None else diff.abs() < window
+        allowed = (
+            torch.ones(T, T, dtype=torch.bool, device=device)
+            if window is None
+            else diff.abs() < window
+        )
     else:
         allowed = diff >= 0
         if window is not None:
@@ -171,8 +180,12 @@ class GQAFlashAttention(nn.Module):
             r = self.n_head // self.n_kv_head
             k = k.repeat_interleave(r, dim=1)
             v = v.repeat_interleave(r, dim=1)
-        out = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=self.dropout if self.training else 0.0)
-        return self.o_proj(out.transpose(1, 2).contiguous().view(B, T, self.n_head * self.head_dim))
+        out = F.scaled_dot_product_attention(
+            q, k, v, attn_mask=mask, dropout_p=self.dropout if self.training else 0.0
+        )
+        return self.o_proj(
+            out.transpose(1, 2).contiguous().view(B, T, self.n_head * self.head_dim)
+        )
 
 
 class DecoderBlock(nn.Module):
@@ -225,10 +238,23 @@ class CustomDecoderConfig(PretrainedConfig):
         dropout (float): Attention dropout.
         bidirectional (bool): Bidirectional attention flag.
     """
+
     model_type = "custom_decoder"
 
-    def __init__(self, vocab_size=50257, dim=512, n_layer=10, n_head=8, n_kv_head=4, d_ff=1536,
-                 max_position_embeddings=2048, window_size=None, dropout=0.0, bidirectional=False, **kw):
+    def __init__(
+        self,
+        vocab_size=50257,
+        dim=512,
+        n_layer=10,
+        n_head=8,
+        n_kv_head=4,
+        d_ff=1536,
+        max_position_embeddings=2048,
+        window_size=None,
+        dropout=0.0,
+        bidirectional=False,
+        **kw,
+    ):
         self.vocab_size = vocab_size
         self.dim = dim
         self.n_layer = n_layer
@@ -248,17 +274,31 @@ class CustomDecoderForCausalLM(PreTrainedModel):
     Args:
         config (CustomDecoderConfig): Model configuration.
     """
+
     config_class = CustomDecoderConfig
 
     def __init__(self, config):
         super().__init__(config)
         self.tok_emb = nn.Embedding(config.vocab_size, config.dim)
-        self.blocks = nn.ModuleList([DecoderBlock(config.dim, config.n_head, config.n_kv_head, config.d_ff,
-                                                  config.window_size, config.dropout) for _ in range(config.n_layer)])
+        self.blocks = nn.ModuleList(
+            [
+                DecoderBlock(
+                    config.dim,
+                    config.n_head,
+                    config.n_kv_head,
+                    config.d_ff,
+                    config.window_size,
+                    config.dropout,
+                )
+                for _ in range(config.n_layer)
+            ]
+        )
         self.norm_f = RMSNorm(config.dim)
         self.lm_head = nn.Linear(config.dim, config.vocab_size, bias=False)
         self.lm_head.weight = self.tok_emb.weight
-        cos, sin = build_rope_cache(config.max_position_embeddings, config.dim // config.n_head)
+        cos, sin = build_rope_cache(
+            config.max_position_embeddings, config.dim // config.n_head
+        )
         self.register_buffer("rope_cos", cos, persistent=False)
         self.register_buffer("rope_sin", sin, persistent=False)
         self.config.use_cache = False
@@ -299,7 +339,13 @@ class CustomDecoderForCausalLM(PreTrainedModel):
         B, T = input_ids.shape
         x = self.tok_emb(input_ids)
         cos, sin = self.rope_cos[:T], self.rope_sin[:T]
-        mask = build_attn_mask(T, x.device, self.config.window_size, getattr(self.config, "bidirectional", False), attention_mask)
+        mask = build_attn_mask(
+            T,
+            x.device,
+            self.config.window_size,
+            getattr(self.config, "bidirectional", False),
+            attention_mask,
+        )
         for b in self.blocks:
             x = b(x, cos, sin, mask)
         return self.norm_f(x)
@@ -322,5 +368,7 @@ class CustomDecoderForCausalLM(PreTrainedModel):
         if labels is not None:
             sl = logits[..., :-1, :].contiguous()
             sy = labels[..., 1:].contiguous()
-            loss = F.cross_entropy(sl.view(-1, sl.size(-1)), sy.view(-1), ignore_index=-100)
+            loss = F.cross_entropy(
+                sl.view(-1, sl.size(-1)), sy.view(-1), ignore_index=-100
+            )
         return CausalLMOutput(loss=loss, logits=logits)

@@ -3,6 +3,7 @@
 Stages: ``data`` -> ``experiments`` -> ``analysis`` (comparison / ablation / fusion / ensemble)
 -> ``ltr`` (dev-fitted rerankers) -> ``ltr_train`` (train-split rerankers, two-stage) -> ``audits``.
 """
+
 import os
 
 import numpy as np
@@ -21,7 +22,12 @@ from pcr.rerank.fusion import ensemble_experiments, fuse_experiments
 from pcr.rerank.ltr_dev import LTRTuner, run_ltr_v1, run_ltr_v3, run_ltr_v4
 from pcr.rerank.ltr_train import build_ltr_state, run_ltr_v5, run_ltr_v6
 from pcr.rerank.ltr_two_stage import TwoStageLTR
-from pcr.retrieval.lexical import build_lexical_suite, compute_lexical_baselines, mine_hard_negatives, select_best_tfidf
+from pcr.retrieval.lexical import (
+    build_lexical_suite,
+    compute_lexical_baselines,
+    mine_hard_negatives,
+    select_best_tfidf,
+)
 from pcr.retrieval.rules import diagnose_rule_features, extra_feats, rule_feats
 from pcr.training.experiments import run_all
 from pcr.training.trainer import build_train_data
@@ -48,12 +54,16 @@ def prepare_data(ctx):
     ctx.meta, st = preprocess_splits(ctx.raw, cfg.clean)
     print_preprocess_summary(ctx.raw, ctx.meta, st)
     audit_schema(ctx.raw, cfg.k)
-    length_statistics(ctx.raw, show=False, save_path=f"{cfg.submit_dir}/length_stats.png")
+    length_statistics(
+        ctx.raw, show=False, save_path=f"{cfg.submit_dir}/length_stats.png"
+    )
     ctx.tok, ctx.eos = get_tokenizer(cfg)
     ctx.spl = build_splits(ctx.raw, ctx.tok, ctx.eos, cfg)
     truncation_table(ctx.spl)
     ctx.lex = compute_lexical_baselines(ctx.spl, cfg)
-    hard, items = mine_hard_negatives(ctx.spl, ctx.lex["bm25"]["train"], cfg)      # BM25 is the hard-negative miner
+    hard, items = mine_hard_negatives(
+        ctx.spl, ctx.lex["bm25"]["train"], cfg
+    )  # BM25 is the hard-negative miner
     ctx.train_data = build_train_data(ctx.spl, hard, items)
     for s in ("dev", "test"):
         ctx.rf[s] = rule_feats(s, ctx.spl, ctx.meta)
@@ -94,7 +104,10 @@ def run_dev_rerankers(ctx, paths):
     tuner = LTRTuner(ctx, exps)
     out["tuner"] = tuner
     out["tuner_result"] = tuner.run()
-    print("best TF-IDF variant chosen on dev:", select_best_tfidf(ctx.spl, ctx.lex, ctx.cfg))
+    print(
+        "best TF-IDF variant chosen on dev:",
+        select_best_tfidf(ctx.spl, ctx.lex, ctx.cfg),
+    )
     raw0 = load_raw_splits(paths, ("dev", "dev_c", "test", "test_c"))
     for s in ("dev", "test"):
         ctx.ex[s] = extra_feats(s, ctx.spl, raw0)
@@ -165,6 +178,18 @@ def run_pipeline(cfg, stages=None, run_ids=None):
         best = ctx.outputs.get("best") or "E1"
         failure_analysis(ctx, best)
         audit_v3(ctx, dev_out["v4"], exps, signals(ctx, "dev", exps))
-        audit_v4(ctx, np.where(np.isnan(tr_out["two_stage"].Bz), np.nanmin(tr_out["two_stage"].Bz) - 1.0, tr_out["two_stage"].Bz))
-        precision_audit(ctx, dev_out["tuner_result"]["cfg"], dev_out["tuner"], dev_out["tuner_result"]["scores_test"])
+        audit_v4(
+            ctx,
+            np.where(
+                np.isnan(tr_out["two_stage"].Bz),
+                np.nanmin(tr_out["two_stage"].Bz) - 1.0,
+                tr_out["two_stage"].Bz,
+            ),
+        )
+        precision_audit(
+            ctx,
+            dev_out["tuner_result"]["cfg"],
+            dev_out["tuner"],
+            dev_out["tuner_result"]["scores_test"],
+        )
     return ctx

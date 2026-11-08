@@ -1,8 +1,4 @@
-"""Tokenisation with the Phase-1 GPT-2 tokenizer (cached) and construction of the per-split containers."""
-import os
-import pickle
-import time
-
+import os, pickle, time
 import numpy as np
 import pandas as pd
 from transformers import AutoTokenizer
@@ -47,19 +43,29 @@ def tokenize_docs(docs, tag, tok, eos, cfg):
     Returns:
         Dict[str, np.ndarray]: ``doc_id -> int32 token ids``.
     """
-    key = md5_text(f"{tag}|{len(docs)}|{md5_text(docs[0]['text']) if docs else ''}|{cfg.max_chars}")[:10]
+    key = md5_text(
+        f"{tag}|{len(docs)}|{md5_text(docs[0]['text']) if docs else ''}|{cfg.max_chars}"
+    )[:10]
     f = f"{cfg.cache_dir}/tok_{tag}_{key}.pkl"
     if os.path.exists(f):
         return pickle.load(open(f, "rb"))
     out, t0 = {}, time.time()
     mc = cfg.max_chars
     for i in range(0, len(docs), 64):
-        b = docs[i:i + 64]
-        txt = [(d["text"] if len(d["text"]) <= mc else d["text"][:int(mc * .7)] + " " + d["text"][-int(mc * .3):]) or "." for d in b]
+        b = docs[i : i + 64]
+        txt = [
+            (
+                d["text"]
+                if len(d["text"]) <= mc
+                else d["text"][: int(mc * 0.7)] + " " + d["text"][-int(mc * 0.3) :]
+            )
+            or "."
+            for d in b
+        ]
         for d, ids in zip(b, tok(txt, add_special_tokens=False)["input_ids"]):
             out[d["id"]] = np.asarray(ids if ids else [eos], np.int32)
     pickle.dump(out, open(f, "wb"))
-    print(f"tokenised {tag}: {len(out)} docs in {time.time()-t0:.0f}s")
+    print(f"tokenised {tag}: {len(out)} docs in {time.time() - t0:.0f}s")
     return out
 
 
@@ -83,21 +89,38 @@ def build_splits(raw, tok, eos, cfg):
     for s in ("train", "dev", "test"):
         Q, C = raw[s], raw[s + "_c"]
         if cfg.smoke:
-            Q = Q[:cfg.smoke_q]
+            Q = Q[: cfg.smoke_q]
             if s != "test":
                 need = {g for d in Q for g in d["gold"]}
                 extra = [d["id"] for d in C if d["id"] not in need]
-                keep = need | set(rng_s.choice(extra, min(300, len(extra)), replace=False))
+                keep = need | set(
+                    rng_s.choice(extra, min(300, len(extra)), replace=False)
+                )
                 C = [d for d in C if d["id"] in keep]
         qset = {q["id"] for q in Q}
-        C = [d for d in C if d["id"] not in qset]          # a query can never retrieve itself
-        tq, tcand = tokenize_docs(Q, s + "_q", tok, eos, cfg), tokenize_docs(C, s + "_c", tok, eos, cfg)
+        C = [d for d in C if d["id"] not in qset]  # a query can never retrieve itself
+        tq, tcand = (
+            tokenize_docs(Q, s + "_q", tok, eos, cfg),
+            tokenize_docs(C, s + "_c", tok, eos, cfg),
+        )
         cset = {c["id"] for c in C}
-        spl[s] = dict(qids=[d["id"] for d in Q], cids=[d["id"] for d in C], qtok=tq, ctok=tcand,
-                      qtext={d["id"]: d["text"] for d in Q}, ctext={d["id"]: d["text"] for d in C},
-                      gold=({d["id"]: set(g for g in d["gold"] if g in cset) for d in Q} if s != "test" else None))
-        print(f"{s}: queries={len(Q)} pool={len(C)} | tokens/doc: q median={np.median([len(tq[i]) for i in tq]):.0f} "
-              f"cand median={np.median([len(tcand[i]) for i in tcand]):.0f}")
+        spl[s] = dict(
+            qids=[d["id"] for d in Q],
+            cids=[d["id"] for d in C],
+            qtok=tq,
+            ctok=tcand,
+            qtext={d["id"]: d["text"] for d in Q},
+            ctext={d["id"]: d["text"] for d in C},
+            gold=(
+                {d["id"]: set(g for g in d["gold"] if g in cset) for d in Q}
+                if s != "test"
+                else None
+            ),
+        )
+        print(
+            f"{s}: queries={len(Q)} pool={len(C)} | tokens/doc: q median={np.median([len(tq[i]) for i in tq]):.0f} "
+            f"cand median={np.median([len(tcand[i]) for i in tcand]):.0f}"
+        )
     return spl
 
 
@@ -112,7 +135,18 @@ def truncation_table(spl, budgets=(512, 1024, 2048, 4096, 8192)):
         pd.DataFrame: ``% dev cand docs > budget`` and ``% tokens kept`` per budget.
     """
     dl = np.array([len(x) for x in spl["dev"]["ctok"].values()])
-    tab = pd.DataFrame({b: {"% dev cand docs > budget": 100 * (dl > b).mean(), "% tokens kept": 100 * np.minimum(dl, b).sum() / dl.sum()}
-                        for b in budgets}).round(1).T
+    tab = (
+        pd.DataFrame(
+            {
+                b: {
+                    "% dev cand docs > budget": 100 * (dl > b).mean(),
+                    "% tokens kept": 100 * np.minimum(dl, b).sum() / dl.sum(),
+                }
+                for b in budgets
+            }
+        )
+        .round(1)
+        .T
+    )
     print(tab.to_string())
     return tab

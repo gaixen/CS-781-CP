@@ -4,6 +4,7 @@ All hyper-parameters that were module-level constants in the original notebook
 live in the :class:`Config` dataclass so that every function receives them
 explicitly instead of relying on globals.
 """
+
 import os
 from dataclasses import dataclass, field
 from typing import Dict, Optional
@@ -75,9 +76,16 @@ class Config:
         kd_t (float): KD temperature.
         kd_mse (float): Weight of the similarity-MSE term in the KD loss.
     """
+
     smoke: bool = False
     seed: int = 42
-    work: str = field(default_factory=lambda: "/kaggle/working" if os.path.isdir("/kaggle/working") else os.path.abspath("./work"))
+    work: str = field(
+        default_factory=lambda: (
+            "/kaggle/working"
+            if os.path.isdir("/kaggle/working")
+            else os.path.abspath("./work")
+        )
+    )
     local_data: Optional[Dict[str, str]] = None
     hf_dataset_repo: str = "Exploration-Lab/CS-781-Capstone"
     hf_prefix: str = "Phase_7_PCR"
@@ -169,10 +177,41 @@ class Config:
 EXPERIMENTS: Dict[str, dict] = {
     "E0": dict(name="zeroshot_frozen", arch="modern_decoder", method="zeroshot"),
     "E1": dict(name="full_ft", arch="modern_decoder", method="full", lr=5e-5, epochs=4),
-    "E2": dict(name="lorma_plus", arch="lightweight_sliding_window", method="lorma", which="attn_ffn", r=128, alpha=128, lr=3e-4, epochs=6),
-    "E3": dict(name="adapters", arch="lightweight_sliding_window_bidir", method="adapters", r=128, lr=3e-4, epochs=6),
-    "E4": dict(name="kd_student", arch="lightweight_sliding_window", method="kd", teacher="E1", keep_every=2, lr=1e-4, epochs=5),
-    "E5": dict(name="partial_top4", arch="modern_decoder", method="partial", k=4, lr=1e-4, epochs=4),
+    "E2": dict(
+        name="lorma_plus",
+        arch="lightweight_sliding_window",
+        method="lorma",
+        which="attn_ffn",
+        r=128,
+        alpha=128,
+        lr=3e-4,
+        epochs=6,
+    ),
+    "E3": dict(
+        name="adapters",
+        arch="lightweight_sliding_window_bidir",
+        method="adapters",
+        r=128,
+        lr=3e-4,
+        epochs=6,
+    ),
+    "E4": dict(
+        name="kd_student",
+        arch="lightweight_sliding_window",
+        method="kd",
+        teacher="E1",
+        keep_every=2,
+        lr=1e-4,
+        epochs=5,
+    ),
+    "E5": dict(
+        name="partial_top4",
+        arch="modern_decoder",
+        method="partial",
+        k=4,
+        lr=1e-4,
+        epochs=4,
+    ),
 }
 
 # Experiments executed by default (add "E5" for the optional partial fine-tuning run).

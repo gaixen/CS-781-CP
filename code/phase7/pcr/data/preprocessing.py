@@ -1,10 +1,3 @@
-"""Deterministic preprocessing (v2).
-
-Dense models were found to match on *header format* (PETITIONER / CITATION / CITATOR INFO blocks) instead of legal
-content. Fixes implemented here: (1) parse year / citation keys / party names from the header **then strip it**,
-(2) drop anonymisation placeholders. The parsed metadata later feeds the rule features (chronology, citation match,
-case-name match).
-"""
 import re
 from collections import Counter
 
@@ -12,8 +5,12 @@ import pandas as pd
 
 PH = re.compile(r"<[A-Z_]{2,10}>")
 MARK = re.compile(r"(?<!OF )\b(ACT\s*:|HEADNOTE\s*:|JUDGMENT\s*:|JUDGEMENT\s*:)")
-PSTOP = set("and ors anr others other etc vs v versus the through its by of rep represented".split())
-GENERIC = set("state union india government commissioner income tax company limited ltd pvt co corporation board municipal central bank another ors".split())
+PSTOP = set(
+    "and ors anr others other etc vs v versus the through its by of rep represented".split()
+)
+GENERIC = set(
+    "state union india government commissioner income tax company limited ltd pvt co corporation board municipal central bank another ors".split()
+)
 
 
 def normt(s):
@@ -38,7 +35,9 @@ def cite_keys(t):
         set: Tuples such as ``("AIR", year, page)`` or ``("SCC", year, volume, page)``.
     """
     k = set()
-    for y, p in re.findall(r"\bAIR\s+(\d{4})\s+(?:SC|S\.C\.|SUPREME COURT|SUP\.? ?CT\.?)?\s*(\d{1,4})\b", t):
+    for y, p in re.findall(
+        r"\bAIR\s+(\d{4})\s+(?:SC|S\.C\.|SUPREME COURT|SUP\.? ?CT\.?)?\s*(\d{1,4})\b", t
+    ):
         k.add(("AIR", y, p))
     for y, p in re.findall(r"\b(\d{4})\s+AIR\s+(\d{1,4})\b", t):
         k.add(("AIR", y, p))
@@ -48,7 +47,9 @@ def cite_keys(t):
         k.add(("SCC", y, v, p))
     for y, v, p in re.findall(r"\b(\d{4})\s*\((\d+)\)\s*S\.?C\.?C\.?\s*(\d+)", t):
         k.add(("SCC", y, v, p))
-    for y, v, p in re.findall(r"[\[\(]?(\d{4})[\]\)]?\s*(\d+)\s*S\.?C\.?R\.?\s*(\d+)", t):
+    for y, v, p in re.findall(
+        r"[\[\(]?(\d{4})[\]\)]?\s*(\d+)\s*S\.?C\.?R\.?\s*(\d+)", t
+    ):
         k.add(("SCR", y, v, p))
     for y, v, p in re.findall(r"\b(\d{4})\s*S\.?C\.?R\.?\s*\((\d+)\)\s*(\d+)", t):
         k.add(("SCR", y, v, p))
@@ -84,13 +85,19 @@ def parse_meta(t):
     if not re.match(r"\s*PETITIONER\s*:", t):
         return m, False
     d = re.search(r"DATE OF JUDGMENT\s*:?\s*\d{1,2}\s*/\s*\d{1,2}\s*/\s*(\d{4})", head)
-    cit = re.search(r"CITATION\s*:\s*(.*?)(?:CITATOR INFO|ACT\s*:|HEADNOTE|$)", head, re.S)
+    cit = re.search(
+        r"CITATION\s*:\s*(.*?)(?:CITATOR INFO|ACT\s*:|HEADNOTE|$)", head, re.S
+    )
     m["keys"] = cite_keys(cit.group(1)) if cit else set()
     if d:
         m["year"] = int(d.group(1))
     elif m["keys"]:
         m["year"] = int(sorted(m["keys"])[0][1])
-    pm = re.search(r"PETITIONER\s*:\s*(.*?)\s+Vs\.?\s+RESPONDENT\s*:\s*(.*?)\s+DATE OF JUDGMENT", head, re.S | re.I)
+    pm = re.search(
+        r"PETITIONER\s*:\s*(.*?)\s+Vs\.?\s+RESPONDENT\s*:\s*(.*?)\s+DATE OF JUDGMENT",
+        head,
+        re.S | re.I,
+    )
     if pm:
         m["nkey"] = [k for k in (party_key(pm.group(1)), party_key(pm.group(2))) if k]
     return m, True
@@ -108,7 +115,7 @@ def strip_header(t):
     if re.match(r"\s*PETITIONER\s*:", t):
         mm = MARK.search(t, 0, 8000)
         if mm:
-            t = t[mm.start():]
+            t = t[mm.start() :]
     return t
 
 
@@ -161,10 +168,31 @@ def print_preprocess_summary(raw, meta, st):
     Returns:
         None
     """
-    print(pd.DataFrame({t: dict(docs=st[t + "_n"], header_parsed_pct=100 * st[t + "_header"] / st[t + "_n"],
-                                year_known_pct=100 * st[t + "_year"] / st[t + "_n"],
-                                chars_removed_pct=100 * (1 - st[t + "_chars_after"] / st[t + "_chars_before"])) for t in meta}).round(1).T.to_string())
+    print(
+        pd.DataFrame(
+            {
+                t: dict(
+                    docs=st[t + "_n"],
+                    header_parsed_pct=100 * st[t + "_header"] / st[t + "_n"],
+                    year_known_pct=100 * st[t + "_year"] / st[t + "_n"],
+                    chars_removed_pct=100
+                    * (1 - st[t + "_chars_after"] / st[t + "_chars_before"]),
+                )
+                for t in meta
+            }
+        )
+        .round(1)
+        .T.to_string()
+    )
     ex = next((d for d in raw["dev"] if meta["dev"][d["id"]]["year"]), None)
     if ex is not None:
-        print("\nexample meta:", {k: (list(v)[:3] if isinstance(v, set) else v) for k, v in meta["dev"][ex["id"]].items() if k != "norm"},
-              "\nexample cleaned start:", ex["text"][:300])
+        print(
+            "\nexample meta:",
+            {
+                k: (list(v)[:3] if isinstance(v, set) else v)
+                for k, v in meta["dev"][ex["id"]].items()
+                if k != "norm"
+            },
+            "\nexample cleaned start:",
+            ex["text"][:300],
+        )

@@ -1,4 +1,5 @@
 """Load the PCR splits (queries + candidate pools) from HuggingFace or local json files."""
+
 import json
 from collections import Counter
 
@@ -16,6 +17,7 @@ def locate_data_paths(cfg, hf_token=None):
     if cfg.local_data:
         return cfg.local_data
     from huggingface_hub import hf_hub_download, list_repo_files
+
     files = list_repo_files(cfg.hf_dataset_repo, repo_type="dataset", token=hf_token)
 
     def find(name):
@@ -27,12 +29,25 @@ def locate_data_paths(cfg, hf_token=None):
         Returns:
             str: Local path of the downloaded file.
         """
-        c = [f for f in files if f.endswith("/" + name) and cfg.hf_prefix in f] or [f for f in files if f.endswith(name)]
+        c = [f for f in files if f.endswith("/" + name) and cfg.hf_prefix in f] or [
+            f for f in files if f.endswith(name)
+        ]
         assert c, f"{name} not found in {cfg.hf_dataset_repo}: {files[:20]}"
-        return hf_hub_download(repo_id=cfg.hf_dataset_repo, filename=sorted(c, key=len)[0], repo_type="dataset", token=hf_token)
+        return hf_hub_download(
+            repo_id=cfg.hf_dataset_repo,
+            filename=sorted(c, key=len)[0],
+            repo_type="dataset",
+            token=hf_token,
+        )
 
-    return {"train": find("train.json"), "train_c": find("train_candidates.json"), "dev": find("dev.json"),
-            "dev_c": find("dev_candidates.json"), "test": find("test.json"), "test_c": find("test_candidates.json")}
+    return {
+        "train": find("train.json"),
+        "train_c": find("train_candidates.json"),
+        "dev": find("dev.json"),
+        "dev_c": find("dev_candidates.json"),
+        "test": find("test.json"),
+        "test_c": find("test_candidates.json"),
+    }
 
 
 def normalize_records(raw):
@@ -44,7 +59,18 @@ def normalize_records(raw):
     Returns:
         List[dict]: Records with keys ``id, text, gold, nsent, keys``. ``gold`` is None for test queries.
     """
-    items = [({**v, "id": v.get("id", k)} if isinstance(v, dict) else {"id": k, "text": v}) for k, v in raw.items()] if isinstance(raw, dict) else raw
+    items = (
+        [
+            (
+                {**v, "id": v.get("id", k)}
+                if isinstance(v, dict)
+                else {"id": k, "text": v}
+            )
+            for k, v in raw.items()
+        ]
+        if isinstance(raw, dict)
+        else raw
+    )
     out = []
     for d in items:
         t = d.get("text", d.get("document", ""))
@@ -52,7 +78,11 @@ def normalize_records(raw):
         t = " ".join(map(str, t)) if isinstance(t, list) else (t or "")
         g = d.get("relevant_candidates")
         g = [str(x) for x in g] if g is not None else None
-        out.append(dict(id=str(d["id"]), text=t, gold=g, nsent=ns, keys=tuple(sorted(d.keys()))))
+        out.append(
+            dict(
+                id=str(d["id"]), text=t, gold=g, nsent=ns, keys=tuple(sorted(d.keys()))
+            )
+        )
     return out
 
 
@@ -67,7 +97,9 @@ def load_raw_splits(paths, keys=None):
         Dict[str, List[dict]]: Normalised records per key.
     """
     keys = list(keys) if keys is not None else list(paths)
-    return {k: normalize_records(json.load(open(paths[k], encoding="utf-8"))) for k in keys}
+    return {
+        k: normalize_records(json.load(open(paths[k], encoding="utf-8"))) for k in keys
+    }
 
 
 def describe_raw(raw):
@@ -80,4 +112,6 @@ def describe_raw(raw):
         None
     """
     for k, v in raw.items():
-        print(f"{k:8s} n={len(v):6d}  keys={Counter(d['keys'] for d in v).most_common(1)[0][0]}")
+        print(
+            f"{k:8s} n={len(v):6d}  keys={Counter(d['keys'] for d in v).most_common(1)[0][0]}"
+        )

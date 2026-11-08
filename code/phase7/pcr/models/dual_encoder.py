@@ -4,6 +4,7 @@ Each case is split into ``ch_tok``-token chunks; every chunk is pooled (mean / l
 chunk vectors are aggregated (mean / max) and L2-normalised. Queries are scored against their own split's
 candidate pool by cosine similarity (and, optionally, by MaxSim over chunks).
 """
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -11,7 +12,13 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as torch_ckpt
 
 from pcr.models.custom_decoder import build_attn_mask
-from pcr.models.phase1_backbone import build_backbone, inject_lorma, inject_adapters, prune_layers, set_trainable_top_k
+from pcr.models.phase1_backbone import (
+    build_backbone,
+    inject_lorma,
+    inject_adapters,
+    prune_layers,
+    set_trainable_top_k,
+)
 
 
 def _cb(blk, x, cos, sin, mask):
@@ -58,8 +65,11 @@ class DualEnc(nn.Module):
         Returns:
             torch.autocast: Context manager.
         """
-        return torch.autocast(device_type=self.device.type, dtype=torch.float16,
-                              enabled=bool(self.cfg.amp and self.device.type == "cuda"))
+        return torch.autocast(
+            device_type=self.device.type,
+            dtype=torch.float16,
+            enabled=bool(self.cfg.amp and self.device.type == "cuda"),
+        )
 
     def chunk_embed(self, ids, mask):
         """Embed a batch of chunks into L2-normalised vectors.
@@ -75,11 +85,19 @@ class DualEnc(nn.Module):
         T = ids.size(1)
         with self.autocast():
             x = m.tok_emb(ids)
-            mk = build_attn_mask(T, x.device, m.config.window_size, bool(getattr(m.config, "bidirectional", False)), mask)
+            mk = build_attn_mask(
+                T,
+                x.device,
+                m.config.window_size,
+                bool(getattr(m.config, "bidirectional", False)),
+                mask,
+            )
             cos, sin = m.rope_cos[:T], m.rope_sin[:T]
             for blk in m.blocks:
                 if self.cfg.grad_ckpt and self.training and torch.is_grad_enabled():
-                    x = torch_ckpt.checkpoint(_cb, blk, x, cos, sin, mk, use_reentrant=False)
+                    x = torch_ckpt.checkpoint(
+                        _cb, blk, x, cos, sin, mk, use_reentrant=False
+                    )
                 else:
                     x = _cb(blk, x, cos, sin, mk)
             h = m.norm_f(x)
@@ -112,10 +130,15 @@ def make_chunks(ids, strat, nch, ch_tok, rng=None):
         if strat == "head":
             starts = starts[:nch]
         elif strat == "spread":
-            starts = [starts[i] for i in np.linspace(0, len(starts) - 1, nch).round().astype(int)]
+            starts = [
+                starts[i]
+                for i in np.linspace(0, len(starts) - 1, nch).round().astype(int)
+            ]
         else:
-            starts = sorted((rng or np.random).choice(starts, nch, replace=False).tolist())
-    return [ids[s:s + ch_tok] for s in starts]
+            starts = sorted(
+                (rng or np.random).choice(starts, nch, replace=False).tolist()
+            )
+    return [ids[s : s + ch_tok] for s in starts]
 
 
 def aggregate(e, owner, N, agg):
@@ -131,9 +154,16 @@ def aggregate(e, owner, N, agg):
         torch.Tensor: L2-normalised document embeddings (N, dim).
     """
     if agg == "max":
-        return F.normalize(torch.zeros(N, e.size(1), device=e.device).scatter_reduce(0, owner[:, None].expand_as(e), e, "amax", include_self=False), dim=-1)
+        return F.normalize(
+            torch.zeros(N, e.size(1), device=e.device).scatter_reduce(
+                0, owner[:, None].expand_as(e), e, "amax", include_self=False
+            ),
+            dim=-1,
+        )
     out = torch.zeros(N, e.size(1), device=e.device).index_add(0, owner, e)
-    return F.normalize(out / torch.bincount(owner, minlength=N).clamp(min=1)[:, None].float(), dim=-1)
+    return F.normalize(
+        out / torch.bincount(owner, minlength=N).clamp(min=1)[:, None].float(), dim=-1
+    )
 
 
 def pad(chs, eos, device):
@@ -151,8 +181,8 @@ def pad(chs, eos, device):
     ids = torch.full((len(chs), T), eos, dtype=torch.long)
     mk = torch.zeros(len(chs), T, dtype=torch.long)
     for i, c in enumerate(chs):
-        ids[i, :len(c)] = torch.as_tensor(np.asarray(c, np.int64))
-        mk[i, :len(c)] = 1
+        ids[i, : len(c)] = torch.as_tensor(np.asarray(c, np.int64))
+        mk[i, : len(c)] = 1
     return ids.to(device), mk.to(device)
 
 
@@ -176,7 +206,12 @@ def encode_batch(model, docs, strat, nch, agg, rng=None):
         chs += c
         owner += [i] * len(c)
     ids, mk = pad(chs, model.eos, model.device)
-    return aggregate(model.chunk_embed(ids, mk), torch.as_tensor(owner, device=model.device), len(docs), agg)
+    return aggregate(
+        model.chunk_embed(ids, mk),
+        torch.as_tensor(owner, device=model.device),
+        len(docs),
+        agg,
+    )
 
 
 @torch.no_grad()
@@ -203,7 +238,7 @@ def chunk_embs(model, docs, strat=None, nch=None):
     order = np.argsort([len(c) for c in chs])
     E = torch.zeros(len(chs), model.dim, device=model.device)
     for s in range(0, len(order), cfg.eval_bs):
-        ix = order[s:s + cfg.eval_bs]
+        ix = order[s : s + cfg.eval_bs]
         ids, mk = pad([chs[i] for i in ix], model.eos, model.device)
         E[torch.as_tensor(ix, device=model.device)] = model.chunk_embed(ids, mk)
     return E, torch.as_tensor(owner, device=model.device)
@@ -264,12 +299,19 @@ def score_both(model, spl, split):
     Eq, oq = chunk_embs(model, [S["qtok"][i] for i in S["qids"]])
     Ec, oc = chunk_embs(model, [S["ctok"][i] for i in S["cids"]])
     nq, nc = len(S["qids"]), len(S["cids"])
-    mean_s = (aggregate(Eq, oq, nq, model.cfg.agg) @ aggregate(Ec, oc, nc, model.cfg.agg).T).float().cpu().numpy()
+    mean_s = (
+        (aggregate(Eq, oq, nq, model.cfg.agg) @ aggregate(Ec, oc, nc, model.cfg.agg).T)
+        .float()
+        .cpu()
+        .numpy()
+    )
     ms = np.zeros((nq, nc), np.float32)
     for i in range(nq):
         rows = Eq[oq == i]
         sims = rows @ Ec.T
-        mx = torch.full((rows.size(0), nc), -1.0, device=model.device).scatter_reduce(1, oc[None].expand(rows.size(0), -1), sims, "amax", include_self=False)
+        mx = torch.full((rows.size(0), nc), -1.0, device=model.device).scatter_reduce(
+            1, oc[None].expand(rows.size(0), -1), sims, "amax", include_self=False
+        )
         ms[i] = mx.mean(0).cpu().numpy()
     return mean_s, ms
 
@@ -286,17 +328,29 @@ def build_model(exp_cfg, cfg, eos, device):
     Returns:
         DualEnc: Encoder on ``device`` with ``requires_grad`` set according to the method.
     """
-    bb = build_backbone(exp_cfg["arch"], cfg.phase1_ckpt[exp_cfg["arch"]], cfg.strict_load)
+    bb = build_backbone(
+        exp_cfg["arch"], cfg.phase1_ckpt[exp_cfg["arch"]], cfg.strict_load
+    )
     m = exp_cfg["method"]
     if m == "kd":
-        print("  student layers (before, after):", prune_layers(bb, exp_cfg.get("keep_every", 2)))
+        print(
+            "  student layers (before, after):",
+            prune_layers(bb, exp_cfg.get("keep_every", 2)),
+        )
     if m == "lorma":
-        print("  LoRMA+ modules:", inject_lorma(bb, exp_cfg.get("which", "attn_ffn"), exp_cfg["r"], exp_cfg["alpha"]))
+        print(
+            "  LoRMA+ modules:",
+            inject_lorma(
+                bb, exp_cfg.get("which", "attn_ffn"), exp_cfg["r"], exp_cfg["alpha"]
+            ),
+        )
     if m == "adapters":
         print("  adapters:", inject_adapters(bb, exp_cfg["r"]))
     if m in ("lorma", "adapters"):
         for n, p in bb.named_parameters():
-            p.requires_grad = getattr(p, "_is_peft", False) or n.endswith("norm_f.weight")
+            p.requires_grad = getattr(p, "_is_peft", False) or n.endswith(
+                "norm_f.weight"
+            )
     elif m == "partial":
         for p in bb.parameters():
             p.requires_grad = False
@@ -319,4 +373,6 @@ def n_params(model):
     Returns:
         Tuple[int, int]: ``(trainable, total)``.
     """
-    return sum(p.numel() for p in model.parameters() if p.requires_grad), sum(p.numel() for p in model.parameters())
+    return sum(p.numel() for p in model.parameters() if p.requires_grad), sum(
+        p.numel() for p in model.parameters()
+    )

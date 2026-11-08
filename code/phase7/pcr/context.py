@@ -1,4 +1,3 @@
-"""Shared state container passed between pipeline stages (replaces the notebook's global variables)."""
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -26,6 +25,7 @@ class PCRContext:
         train_data (Any): :class:`pcr.training.trainer.TrainData` with hard negatives.
         results (dict): Experiment results ``eid -> result dict``.
     """
+
     cfg: Config
     device: Any = None
     experiments: Dict[str, dict] = field(default_factory=lambda: dict(EXPERIMENTS))
