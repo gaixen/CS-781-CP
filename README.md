@@ -125,8 +125,6 @@ A byte-level BPE tokenizer with a 60,000-token vocabulary is trained from scratc
 * Decoded text is single-spaced, because whitespace runs and newlines are not preserved. This is irrelevant to word-level metrics such as ROUGE and BLEU.
 * The same tokenizer folder must be used for training, validation and test-time generation. Models trained with it cannot reuse checkpoints trained with another vocabulary.
 
-> **Note.** Some per-phase documentation and the default `get_tokenizer()` in `phase1/lm/utils.py` still refer to the GPT-2 tokenizer used in early experiments. For the final submissions, point `AutoTokenizer.from_pretrained` at the `legal_bpe/hf` directory produced by the tokenizer-training notebook.
-
 ### 4.3 Phase 1: Foundation Models
 
 | Model | Description |
