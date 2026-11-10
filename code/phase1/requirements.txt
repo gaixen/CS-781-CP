@@ -1,0 +1,11 @@
+torch>=2.1
+transformers>=4.40
+datasets
+huggingface_hub
+safetensors
+ijson
+numpy
+matplotlib
+rouge-score
+sacrebleu
+pytest
