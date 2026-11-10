@@ -76,18 +76,8 @@ cs781-capstone/
 ├── phase2/                   # Legal NER (lner/ package, scripts/, tests/)
 ├── phase3/                   # Rhetorical roles (placeholder in this snapshot)
 └── phase4/                   # CJPE (cjpe/ package, scripts/, tests/)
+...
 ```
-
-| Phase | Folder | Status in this repository |
-|:-----:|--------|---------------------------|
-| 1 | [`phase1/`](phase1/) | Complete: architectures, streaming data pipeline, training, KV-cache generation, submission |
-| 2 | [`phase2/`](phase2/) | Complete: backbones, heads, decoding, post-processing, ensembling, distillation |
-| 3 | [`phase3/`](phase3/) | Not yet added |
-| 4 | [`phase4/`](phase4/) | Complete: PEFT, hierarchical encoders, knowledge distillation |
-| 5–7 | none | Not included in this snapshot; the methodology is documented in Section 4 |
-
-Each included phase folder has its own `README.md` covering architecture, methodology, implementation, experimental setup and run instructions.
-
 ---
 
 ## 4. Methodology
@@ -135,7 +125,7 @@ A byte-level BPE tokenizer with a 60,000-token vocabulary is trained from scratc
 | **T5 baseline** | Encoder-decoder (about 110M parameters). |
 
 * **Objective:** causal language modelling, cross-entropy, 2,048-token context, EOS between documents.
-* **Evaluation:** held-out perplexity,
+* **Evaluation:** held-out perplexity
 
 $$\mathrm{PPL}=\exp\!\Big(-\tfrac{1}{N}\sum_{i=1}^{N}\log p(x_i\mid x_{<i})\Big),$$
 
